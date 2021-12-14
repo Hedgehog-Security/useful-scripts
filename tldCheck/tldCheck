@@ -1,0 +1,104 @@
+#!/bin/bash
+
+domain=$1
+brand=$2
+
+# Logs
+reviewlog="manual-review.log"
+hitlog="dns-hits.log"
+brandhit="brand-hits.log"
+
+# Colours
+R='\033[0;31m'
+G='\033[0;32m'
+O='\033[0;33m'
+B='\033[0;34m'
+NC='\033[0m'
+
+banner() {
+        clear
+	count=`cat tlds.txt|wc -l`
+        printf "${O}---------------------------------------------------------------------------------\n"
+        printf "${O}| Welcome to Pete's dns analysis script.                                        |\n"
+        printf "${O}| Copyright (c) 2010-2017 Hedgehog Security.                                    |\n"
+        printf "${O}|                                                                               |\n"
+        printf "${O}| Contact: research@hedgehogsecurity.gi                                         |\n"
+        printf "${O}| Version: 1.0                                                                  |\n"
+        printf "${O}---------------------------------------------------------------------------------\n"
+        printf "\n \n"
+        printf "${O}Peter says always keep your Kali instance up to date...\n"
+        printf "\n \n"
+	printf "${G}[+]${NC} Checking DNS entries for $domain and checking content for $brand\n"
+	printf "${G}[+]${NC}  - checking $count tld's\n"
+}
+
+checkTLDs() {
+	if [ -e tlds.txt ]
+	then
+		printf "${G}[+]${NC}  - tld file ok.\n"
+	else
+		printf "${G}[+]${NC}  - tld missing, grabbing it now.\n"
+		wget https://publicsuffix.org/list/public_suffix_list.dat
+		cat public_suffix_list.dat|egrep -v '//'|sort -u >> tlds.txt
+		sed -i 1,62d tlds.txt
+		rm -f public_suffix_list.dat
+	fi
+}
+
+	banner
+	checkTLDs
+	for i in `cat tlds.txt`
+		do 
+			printf "${G}[+]${NC} Testing $1.$i"
+			output=`dig $1.$i|grep $1.$i|grep -v ';'`
+			if [[ $output ]]; then
+				printf "\n${O}[+]${NC} - DNS Records found for $1.$i - checking for content.\n"
+				echo "$1.$i" >> $domain-$hitlog
+				pageOutput=`curl -s $1.$i|grep $1.$i` 
+				if [[ $pageOutput ]]; then
+					brandCheck=`curl -s $1.$i|grep "$brand"`
+					printf "${G}[-]${NC} - Checking for http data."
+					if [[ $brandCheck ]]; then
+						printf "						${O}[PRESENT]${NC}\n"
+						echo "$1.$i" >> $domain-$reviewlog
+					else
+                                                printf "							${G}[OK]${NC}\n"
+						echo "$1.$i" >> $domain-$brandhit
+					fi
+                                        brandCheck=`curl -k -s https://$1.$i|grep "$brand"`
+					printf "${G}[-]${NC} - Checking for https data."
+                                        if [[ $brandCheck ]]; then
+                                                printf "						${O}[PRESENT]${NC}\n"
+                                                echo "$1.$i" >> $domain-$reviewlog
+                                        else
+                                                printf "							${G}[OK]${NC}\n"
+                                                echo "$1.$i" >> $domain-$brandhit
+                                        fi
+                                fi
+				printf "${O}[-]${NC} - Prepending with www and re-checking.\n"
+				output=`dig www.$1.$i|grep www.$1.$i|grep -v ';'`
+				if [[ $pageOutput ]]; then
+					brandCheck=`curl -s www.$1.$i|grep "$brand"`
+					printf "${G}[-]${NC} - Checking for http data using www."
+					if [[ $brandCheck ]]; then
+						printf "							${O}[PRESENT]${NC}\n"
+						echo "www.$1.$i" >> $domain-$reviewlog
+					else
+                                                printf "							${G}[OK]${NC}\n"
+						echo "www.$1.$i" >> $domain-$brandhit
+					fi
+                                        brandCheck=`curl -k -s https://www.$1.$i|grep "$brand"`
+					printf "${G}[-]${NC} - Checking for https data."
+                                        if [[ $brandCheck ]]; then
+                                                printf "							${O}[PRESENT]${NC}\n"
+                                                echo "www.$1.$i" >> $domain-$reviewlog
+                                        else
+                                                printf "							${G}[OK]${NC}\n"
+                                                echo "www.$1.$i" >> $domain-$brandhit
+                                        fi
+                                fi
+			else
+				printf "							${G}[OK]${NC} \n"
+			fi
+		done
+	printf "${G}[=]${NC} All done.\n"
